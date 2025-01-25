@@ -91,13 +91,13 @@ impl Page {
 impl fmt::Display for Page {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Use the write! macro to format the struct fields
-        writeln!(f, "Page(")?;
+        writeln!(f, "Page {{")?;
         writeln!(f, "\tPageType: {:?}", self.page_type)?;
         writeln!(f, "\tsize: {}", self.size)?;
         writeln!(f, "\tcell_count: {}", self.cell_count)?;
         writeln!(f, "\theader_offset: {}", self.header_offset)?;
         writeln!(f, "\tfree_block_start: {}", self.free_block_start)?;
         writeln!(f, "\tcell_start: {}", self.cell_start)?;
-        writeln!(f, ")")
+        writeln!(f, "}}")
     }
 }

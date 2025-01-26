@@ -12,11 +12,13 @@ pub fn tables(p: &str) -> Result<()> {
     file.rewind()?;
     let page = Page::new(&mut file, db_header.page_size, 100)?;
 
+
     let first_cell_offset = page.cell_start;
     let cell = Cell::new(&page.raw[(first_cell_offset as usize)..], &page.page_type)?;
+    cell.content.print_table();
 
-    println!("Page: {}", page);
-    println!("Cell: {}", cell);
+    // println!("Page: {}", page);
+    // println!("Cell: {}", cell);
     Ok(())
 }
 

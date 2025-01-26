@@ -1,15 +1,16 @@
 use crate::utils::VarInt;
 // use core::{panic;
-use std::{fmt::{self, write}, usize};
+use std::{fmt, usize};
 use crate::page::PageType;
-use anyhow::{bail, Result};
-use bytes::Buf;
+use anyhow::{bail, Ok, Result};
 
 impl fmt::Display for Cell {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Cell {{")?;
         writeln!(f, "\tsize_record: {}", self.size_record)?;
         writeln!(f, "\trowId: {:?}", self.rowid)?;
+        writeln!(f, "\tcontent: {:#?}", self.content)?;
+    // pub content: Content,
         writeln!(f, "}}")
     }
 }
@@ -133,12 +134,22 @@ pub struct Content {
 }
 
 impl Content {
-    pub fn print_table(&self) -> () {
-        if let Record::String(s) = &self.schema_tbl_name {
-            print!("{}", s)
-        } else {
-            print!("schema table name is not a string")
+    pub fn is_table(&self) -> bool {
+        if let Record::String(s) = &self.schema_type {
+            if s == "table" {
+                return true
+            }
         }
+        false
+    }
+
+    pub fn get_table_name(&self) -> Result<&str> {
+        if self.is_table() {
+            if let Record::String(s) = &self.schema_tbl_name {
+                return Ok(s)
+            }
+        }
+        bail!("not a table or not a string type")
     }
 
     fn new(bytes: &[u8]) -> Result<Self>{
@@ -187,25 +198,31 @@ impl Content {
 }
 
 pub struct Cell {
-    pub size_record: VarInt,
-    pub rowid: Option<VarInt>,
+    size_record: VarInt,
+    pub rowid: VarInt,
     pub content: Content,
     // pub record: Record,
 }
 
 impl Cell {
+    pub fn record_size(&self) -> usize {
+        self.size_record.val as usize
+    }
+
+    pub fn cell_size(&self) -> usize {
+        (self.size_record.val as usize) + self.rowid.len + self.size_record.len
+    }
+
     pub fn new(bytes: &[u8], page_type: &PageType) -> Result<Self> {
         match page_type {
             PageType::LeafTable => {
                 // there can be overflow for cell spillage
-                let size_of_cell = VarInt::from_mem(&bytes[..9])?;
-                let rowid = VarInt::from_mem(&bytes[size_of_cell.len..size_of_cell.len + 9])?;
+                let size_record = VarInt::from_mem(&bytes[..9])?;
+                let rowid = VarInt::from_mem(&bytes[size_record.len..size_record.len + 9])?;
 
-                let content = Content::new(&bytes[&size_of_cell.len + &rowid.len..])?;
+                let content = Content::new(&bytes[&size_record.len + &rowid.len..])?;
 
-                // println!("content: {:?}", content);
-
-                return Ok(Self { size_record: size_of_cell, rowid: Some(rowid), content });
+                return Ok(Self { size_record, rowid, content });
             },
             _ => todo!(),
             // PageType::InteriorTable => todo!(),

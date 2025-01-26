@@ -13,12 +13,32 @@ pub fn tables(p: &str) -> Result<()> {
     let page = Page::new(&mut file, db_header.page_size, 100)?;
 
 
-    let first_cell_offset = page.cell_start;
-    let cell = Cell::new(&page.raw[(first_cell_offset as usize)..], &page.page_type)?;
-    cell.content.print_table();
+    let mut cell_start = page.cell_start as usize;
+    let mut cells = vec![];
+    for _ in 0..page.cell_count {
+        cells.push(Cell::new(&page.raw[(cell_start as usize)..], &page.page_type)?);
+        if let Some(c) = cells.last() {
+            cell_start += c.cell_size();
+        }
+    }
 
-    // println!("Page: {}", page);
-    // println!("Cell: {}", cell);
+    println!("lol");
+    println!("{}", cells.len());
+
+    let mut tables = vec![];
+    for cell in &cells {
+        println!("cell: {}", cell);
+        let table_name = cell.content.get_table_name()?;
+        if table_name != "sqlite_sequence" {
+            tables.push(table_name);
+        }
+    }
+    tables.sort();
+    for table in tables {
+        print!("{} ", table);
+    }
+    println!("");
+
     Ok(())
 }
 

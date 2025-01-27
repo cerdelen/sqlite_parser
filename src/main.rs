@@ -1,7 +1,7 @@
-mod utils;
-mod page;
 mod cell;
 mod commands;
+mod page;
+mod utils;
 
 use anyhow::{bail, Ok, Result};
 

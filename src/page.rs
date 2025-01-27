@@ -1,7 +1,8 @@
+use anyhow::{Ok, Result};
+use core::panic;
 use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
-use anyhow::{Ok, Result};
 
 #[derive(Debug)]
 pub enum PageType {
@@ -11,9 +12,17 @@ pub enum PageType {
     LeafTable,
 }
 
+#[derive(Debug)]
+pub enum StringEncoding {
+    UTF_8,
+    UTF_16LE,
+    UTF_16BE,
+}
 
 pub struct DataBaseHeader {
     pub page_size: u16,
+    pub string_encoding: StringEncoding,
+    pub database_size: u32,
     // Offset	Size	Description
     // 0	16	The header string: "SQLite format 3\000"
     // 16	2	The database page size in bytes. Must be a power of two between 512 and 32768 inclusive, or the value 1 representing a page size of 65536.
@@ -45,7 +54,18 @@ impl DataBaseHeader {
         let mut file_header = [0; 100];
         file.read_exact(&mut file_header)?;
         let page_size = u16::from_be_bytes([file_header[16], file_header[17]]);
-        Ok(Self { page_size })
+        let string_encoding = match u32::from_be_bytes(file_header[56..60].try_into()?) {
+            1 => StringEncoding::UTF_8,
+            2 => StringEncoding::UTF_16LE,
+            3 => StringEncoding::UTF_16BE,
+            _ => panic!("Unknown String Encoding"),
+        };
+        let database_size = u32::from_be_bytes(file_header[28..32].try_into()?);
+        Ok(Self {
+            page_size,
+            string_encoding,
+            database_size,
+        })
     }
 }
 
@@ -69,7 +89,18 @@ impl Page {
             panic!("Page Size is smaller than page header!");
         }
         let mut ind = page_header_start;
-        let mut page = Self { raw: vec![0u8; size as usize], cell_count: 0, page_type: PageType::InteriorIndex, header_offset: 0, free_block_start: 0, size, cell_start: 0, cell_ptrs: vec![], free_block_size: 0, right_most_ptr: None };
+        let mut page = Self {
+            raw: vec![0u8; size as usize],
+            cell_count: 0,
+            page_type: PageType::InteriorIndex,
+            header_offset: 0,
+            free_block_start: 0,
+            size,
+            cell_start: 0,
+            cell_ptrs: vec![],
+            free_block_size: 0,
+            right_most_ptr: None,
+        };
         file.read_exact(&mut page.raw)?;
         match page.raw[ind] {
             0x02 => page.page_type = PageType::InteriorIndex,
@@ -90,15 +121,21 @@ impl Page {
         }
         page.free_block_size = page.raw[ind];
         ind += 1;
-        match &page.page_type  {
+        match &page.page_type {
             PageType::InteriorIndex | PageType::InteriorTable => {
-                page.right_most_ptr = Some(u32::from_be_bytes([page.raw[ind], page.raw[ind + 1], page.raw[ind + 2], page.raw[ind + 3]]));
+                page.right_most_ptr = Some(u32::from_be_bytes([
+                    page.raw[ind],
+                    page.raw[ind + 1],
+                    page.raw[ind + 2],
+                    page.raw[ind + 3],
+                ]));
                 ind += 4;
             }
             _ => (),
         }
         for _ in 0..page.cell_count {
-            page.cell_ptrs.push(u16::from_be_bytes([page.raw[ind], page.raw[ind + 1]]) as usize);
+            page.cell_ptrs
+                .push(u16::from_be_bytes([page.raw[ind], page.raw[ind + 1]]) as usize);
             ind += 2;
         }
         match page.page_type {
@@ -111,7 +148,6 @@ impl Page {
 
 impl fmt::Display for Page {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Use the write! macro to format the struct fields
         writeln!(f, "Page {{")?;
         writeln!(f, "\tPageType: {:?}", self.page_type)?;
         writeln!(f, "\tsize: {}", self.size)?;

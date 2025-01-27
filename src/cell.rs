@@ -9,8 +9,7 @@ impl fmt::Display for Cell {
         writeln!(f, "Cell {{")?;
         writeln!(f, "\tsize_record: {}", self.size_record)?;
         writeln!(f, "\trowId: {:?}", self.rowid)?;
-        writeln!(f, "\tcontent: {:#?}", self.content)?;
-    // pub content: Content,
+        writeln!(f, "\tcontent: {:?}", self.content)?;
         writeln!(f, "}}")
     }
 }

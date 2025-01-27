@@ -56,8 +56,11 @@ pub struct Page {
     pub cell_count: u16,
     pub page_type: PageType,
     pub header_offset: usize,
-    pub free_block_start: u8,
+    pub free_block_start: u16,
+    pub free_block_size: u8,
     pub cell_start: u32,
+    pub cell_ptrs: Vec<usize>,
+    pub right_most_ptr: Option<u32>,
 }
 
 impl Page {
@@ -65,20 +68,38 @@ impl Page {
         if size < 8 {
             panic!("Page Size is smaller than page header!");
         }
-        let mut page = Self { raw: vec![0u8; size as usize], cell_count: 0, page_type: PageType::InteriorIndex, header_offset: 0, free_block_start: 0, size, cell_start: 0 };
+        let mut ind = page_header_start;
+        let mut page = Self { raw: vec![0u8; size as usize], cell_count: 0, page_type: PageType::InteriorIndex, header_offset: 0, free_block_start: 0, size, cell_start: 0, cell_ptrs: vec![], free_block_size: 0, right_most_ptr: None };
         file.read_exact(&mut page.raw)?;
-        page.free_block_start = page.raw[page_header_start + 2];
-        page.cell_count = u16::from_be_bytes([page.raw[page_header_start + 3], page.raw[page_header_start + 4]]);
-        page.cell_start = u16::from_be_bytes([page.raw[page_header_start + 5], page.raw[page_header_start + 6]]) as u32;
-        if page.cell_start == 0 {
-            page.cell_start = 65536;
-        }
-        match page.raw[page_header_start + 0] {
+        match page.raw[ind] {
             0x02 => page.page_type = PageType::InteriorIndex,
             0x05 => page.page_type = PageType::InteriorTable,
             0x0a => page.page_type = PageType::LeafIndex,
             0x0d => page.page_type = PageType::LeafTable,
             page_type => panic!("Unknown Page Type {}!", page_type),
+        }
+        ind += 1;
+        page.free_block_start = u16::from_be_bytes([page.raw[ind], page.raw[ind + 1]]);
+        ind += 2;
+        page.cell_count = u16::from_be_bytes([page.raw[ind], page.raw[ind + 1]]);
+        ind += 2;
+        page.cell_start = u16::from_be_bytes([page.raw[ind], page.raw[ind + 1]]) as u32;
+        ind += 2;
+        if page.cell_start == 0 {
+            page.cell_start = 65536;
+        }
+        page.free_block_size = page.raw[ind];
+        ind += 1;
+        match &page.page_type  {
+            PageType::InteriorIndex | PageType::InteriorTable => {
+                page.right_most_ptr = Some(u32::from_be_bytes([page.raw[ind], page.raw[ind + 1], page.raw[ind + 2], page.raw[ind + 3]]));
+                ind += 4;
+            }
+            _ => (),
+        }
+        for _ in 0..page.cell_count {
+            page.cell_ptrs.push(u16::from_be_bytes([page.raw[ind], page.raw[ind + 1]]) as usize);
+            ind += 2;
         }
         match page.page_type {
             PageType::InteriorIndex | PageType::InteriorTable => page.header_offset = 12,

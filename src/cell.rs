@@ -14,6 +14,14 @@ impl fmt::Display for Cell {
     }
 }
 
+
+pub fn find_table_by_name<'a>(cells: &'a Vec<Cell>, target: &str) -> Option<&'a Cell> {
+    cells.iter().find(|t|
+        t.content.get_table_name().ok().map_or(false, |name| name == target)
+    )
+}
+
+
 #[derive(Debug)]
 pub enum Record {
     Null,

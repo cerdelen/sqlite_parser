@@ -1,7 +1,7 @@
 use crate::cell::*;
 use crate::page::*;
 
-use anyhow::{Ok, Result};
+use anyhow::Result;
 use std::fs::File;
 use std::io::prelude::*;
 
@@ -12,23 +12,17 @@ pub fn tables(p: &str) -> Result<()> {
     file.rewind()?;
     let page = Page::new(&mut file, db_header.page_size, 100)?;
 
-    let mut cells = vec![];
-    for cell_start in page.cell_ptrs {
-        cells.push(Cell::new(&page.raw[cell_start..], &page.page_type)?);
-    }
+    let tables = tables_from_page(&page)?;
 
-    let mut tables = vec![];
-    for cell in &cells {
-        if cell.content.is_table() {
-            let table_name = cell.content.get_table_name()?;
-            if table_name != "sqlite_sequence" {
-                tables.push(table_name);
-            }
-        }
-    }
-    tables.sort();
-    for table in tables {
-        print!("{} ", table);
+    let mut tables_names: Vec<&str> = tables
+        .iter()
+        .filter_map(|table| table.content.get_table_name().ok())
+        .collect();
+
+    tables_names.sort();
+
+    for table_name in tables_names {
+        print!("{} ", table_name);
     }
     println!("");
 
@@ -44,5 +38,33 @@ pub fn db_info(p: &str) -> Result<()> {
 
     println!("database page size: {}", db_header.page_size);
     println!("number of tables: {}", page.cell_count);
+
     Ok(())
+}
+
+fn count_rows(p: &str, table: &str) -> Result<()> {
+    let mut file = File::open(p)?;
+    let db_header = DataBaseHeader::new(&mut file)?;
+
+    file.rewind()?;
+    let page = Page::new(&mut file, db_header.page_size, 100)?;
+
+    let tables = tables_from_page(&page)?;
+
+    if let Some(table) = find_table_by_name(&tables, table) {
+        println!("table: {}", table);
+    }
+
+    // let second_page = Page::new(&mut file, db_header.page_size, db_header.page_size as usize);
+    // println!("second page: {:?}", second_page);
+
+    Ok(())
+}
+
+pub fn sql_query(p: &str, query: &str) -> Result<()> {
+    println!("command: \"{}\"", query);
+
+    let tokens: Vec<&str> = query.split(" ").collect();
+
+    count_rows(p, tokens.last().unwrap())
 }

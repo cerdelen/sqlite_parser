@@ -4,6 +4,8 @@ use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
 
+use crate::cell::Cell;
+
 #[derive(Debug)]
 pub enum PageType {
     InteriorIndex,
@@ -67,6 +69,16 @@ impl DataBaseHeader {
             database_size,
         })
     }
+}
+
+pub fn tables_from_page(page: &Page) -> Result<Vec<Cell>> {
+    let mut cells = vec![];
+    for cell_start in &page.cell_ptrs {
+        cells.push(Cell::new(&page.raw[cell_start.clone()..], &page.page_type)?);
+    }
+
+    cells.retain(|c| c.content.is_table());
+    Ok(cells)
 }
 
 #[derive(Debug)]

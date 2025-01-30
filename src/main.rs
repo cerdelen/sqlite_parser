@@ -23,7 +23,9 @@ fn main() -> Result<()> {
         ".tables" => {
             commands::tables(&args[1])?;
         }
-        _ => bail!("Missing or invalid command passed: {}", command),
+        _ => {
+            commands::sql_query(&args[1], command)?;
+        },
     }
 
     Ok(())

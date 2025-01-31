@@ -40,6 +40,13 @@ pub enum Record {
 }
 
 impl Record {
+    pub fn get_string_val(&self) -> &String {
+        match self {
+            Record::String(s) => s,
+            _ => panic!("Record is not Strign!"),
+        }
+    }
+
     pub fn get_numeric_val(&self) -> u64 {
         match self {
             Record::I8(v) => *v as u64,
@@ -173,6 +180,9 @@ pub struct Content {
 }
 
 impl Content {
+    pub fn get_sql(&self) -> &Record {
+        &self.schema_sql
+    }
 
     pub fn get_rootpage(&self) -> &Record {
         &self.schema_rootpage

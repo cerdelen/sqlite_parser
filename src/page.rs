@@ -16,11 +16,12 @@ pub enum PageType {
 
 #[derive(Debug)]
 pub enum StringEncoding {
-    UTF_8,
-    UTF_16LE,
-    UTF_16BE,
+    Utf8,
+    Utf16le,
+    Utf16be,
 }
 
+#[allow(dead_code)]
 pub struct DataBaseHeader {
     pub page_size: u16,
     pub string_encoding: StringEncoding,
@@ -57,9 +58,9 @@ impl DataBaseHeader {
         file.read_exact(&mut file_header)?;
         let page_size = u16::from_be_bytes([file_header[16], file_header[17]]);
         let string_encoding = match u32::from_be_bytes(file_header[56..60].try_into()?) {
-            1 => StringEncoding::UTF_8,
-            2 => StringEncoding::UTF_16LE,
-            3 => StringEncoding::UTF_16BE,
+            1 => StringEncoding::Utf8,
+            2 => StringEncoding::Utf16le,
+            3 => StringEncoding::Utf16be,
             _ => panic!("Unknown String Encoding"),
         };
         let database_size = u32::from_be_bytes(file_header[28..32].try_into()?);

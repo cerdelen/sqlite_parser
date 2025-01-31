@@ -40,6 +40,21 @@ pub enum Record {
 }
 
 impl Record {
+    pub fn get_numeric_val(&self) -> u64 {
+        match self {
+            Record::I8(v) => *v as u64,
+            Record::I16(v) => *v as u64,
+            Record::I24(v) => *v as u64,
+            Record::I32(v) => *v as u64,
+            Record::I48(v) => *v as u64,
+            Record::I64(v) => *v as u64,
+            Record::F64(v) => *v as u64,
+            Record::Val0 => 0,
+            Record::Val1 => 1,
+            _ => panic!("Record is not numeric!"),
+        }
+    }
+
     fn mem_size(&self) -> usize {
         match self {
             Record::Null => 0,
@@ -63,31 +78,31 @@ impl Record {
             0 => Self::Null,
             1 => {
                 if bytes.len() < 1 {
-                    return bail!("expect I8 but buffer only size of {}", bytes.len());
+                    bail!("expect I8 but buffer only size of {}", bytes.len());
                 };
                 Self::I8(bytes[0] as i8)
             }
             2 => {
                 if bytes.len() < 2 {
-                    return bail!("expect I16 but buffer only size of {}", bytes.len());
+                    bail!("expect I16 but buffer only size of {}", bytes.len());
                 };
                 Self::I16(i16::from_be_bytes([bytes[0], bytes[1]]))
             }
             3 => {
                 if bytes.len() < 3 {
-                    return bail!("expect I24 but buffer only size of {}", bytes.len());
+                    bail!("expect I24 but buffer only size of {}", bytes.len());
                 }
                 Self::I24(i32::from_be_bytes([0, bytes[0], bytes[1], bytes[2]]))
             }
             4 => {
                 if bytes.len() < 4 {
-                    return bail!("expect I32 but buffer only size of {}", bytes.len());
+                    bail!("expect I32 but buffer only size of {}", bytes.len());
                 }
                 Self::I32(i32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
             }
             5 => {
                 if bytes.len() < 6 {
-                    return bail!("expect I48 but buffer only size of {}", bytes.len());
+                    bail!("expect I48 but buffer only size of {}", bytes.len());
                 }
                 Self::I48(i64::from_be_bytes([
                     0, 0, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
@@ -95,7 +110,7 @@ impl Record {
             }
             6 => {
                 if bytes.len() < 8 {
-                    return bail!("expect I64 but buffer only size of {}", bytes.len());
+                    bail!("expect I64 but buffer only size of {}", bytes.len());
                 }
                 Self::I64(i64::from_be_bytes([
                     bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
@@ -103,7 +118,7 @@ impl Record {
             }
             7 => {
                 if bytes.len() < 8 {
-                    return bail!("expect F64 but buffer only size of {}", bytes.len());
+                    bail!("expect F64 but buffer only size of {}", bytes.len());
                 }
                 Self::F64(f64::from_be_bytes([
                     bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
@@ -120,7 +135,7 @@ impl Record {
                             "Error this is the entry \"{}\"",
                             String::from_utf8_lossy(bytes)
                         );
-                        return bail!(
+                        bail!(
                             "expected String of size {}, but buffer only size of {}",
                             ((val - 13) / 2) as usize,
                             bytes.len()
@@ -131,7 +146,7 @@ impl Record {
                 }
                 0 => {
                     if bytes.len() < ((val - 12) / 2) as usize {
-                        return bail!(
+                        bail!(
                             "expected Blob of size {}, but buffer only size of {}",
                             ((val - 12) / 2) as usize,
                             bytes.len()
@@ -147,6 +162,7 @@ impl Record {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Content {
     header_size: VarInt,
     schema_type: Record,
@@ -157,6 +173,11 @@ pub struct Content {
 }
 
 impl Content {
+
+    pub fn get_rootpage(&self) -> &Record {
+        &self.schema_rootpage
+    }
+
     pub fn is_table(&self) -> bool {
         if let Record::String(s) = &self.schema_type {
             if s == "table" {
@@ -222,9 +243,9 @@ pub struct Cell {
     size_record: VarInt,
     pub rowid: VarInt,
     pub content: Content,
-    // pub record: Record,
 }
 
+#[allow(dead_code)]
 impl Cell {
     pub fn record_size(&self) -> usize {
         self.size_record.val as usize

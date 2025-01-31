@@ -4,6 +4,7 @@ use crate::page::*;
 use anyhow::Result;
 use std::fs::File;
 use std::io::prelude::*;
+use std::io::SeekFrom;
 
 pub fn tables(p: &str) -> Result<()> {
     let mut file = File::open(p)?;
@@ -52,17 +53,28 @@ fn count_rows(p: &str, table: &str) -> Result<()> {
     let tables = tables_from_page(&page)?;
 
     if let Some(table) = find_table_by_name(&tables, table) {
-        println!("table: {}", table);
+        let root_page = (table.content.get_rootpage().get_numeric_val() - 1)
+                * db_header.page_size as u64;
+
+        file.seek(SeekFrom::Start(root_page))?;
+        let table_page = Page::new(&mut file, db_header.page_size, 0)?;
+        // println!("table_page: {}", table_page);
+
+        if let PageType::LeafTable = table_page.page_type {
+            println!("{}", table_page.cell_count);
+        } else {
+            println!("table is multipage table ... cant parse that yet");
+        }
+    } else {
+        println!("no such table: {}", table);
     }
 
-    // let second_page = Page::new(&mut file, db_header.page_size, db_header.page_size as usize);
-    // println!("second page: {:?}", second_page);
 
     Ok(())
 }
 
 pub fn sql_query(p: &str, query: &str) -> Result<()> {
-    println!("command: \"{}\"", query);
+    // println!("command: \"{}\"", query);
 
     let tokens: Vec<&str> = query.split(" ").collect();
 

@@ -2,6 +2,7 @@ use crate::utils::VarInt;
 // use core::{panic;
 use crate::page::PageType;
 use anyhow::{bail, Ok, Result};
+// use core::slice::SlicePattern;
 use std::{fmt, usize};
 
 impl fmt::Display for Cell {
@@ -16,8 +17,14 @@ impl fmt::Display for Cell {
 
 
 pub fn find_table_by_name<'a>(cells: &'a Vec<Cell>, target: &str) -> Option<&'a Cell> {
-    cells.iter().find(|t|
-        t.content.get_table_name().ok().map_or(false, |name| name == target)
+    cells.iter().find(|t|{
+            if let Content::TableCell(content) = &t.content {
+                content.get_table_name().ok().map_or(false, |name| name == target)
+            }
+            else {
+                false
+            }
+        }
     )
 }
 
@@ -62,7 +69,7 @@ impl Record {
         }
     }
 
-    fn mem_size(&self) -> usize {
+    pub fn mem_size(&self) -> usize {
         match self {
             Record::Null => 0,
             Record::I8(_) => 1,
@@ -168,9 +175,62 @@ impl Record {
     }
 }
 
+fn parse_cell_header(bytes: &[u8]) -> Result<(Vec<VarInt>, usize)> {
+    let mut ind: usize = 0;
+    let header_size = VarInt::from_mem(&bytes[..10])?;
+    ind += header_size.len;
+
+    let mut types = Vec::new();
+    while ind < header_size.val as usize {
+        let serial_type = VarInt::from_mem(&bytes[ind..ind + 10])?;
+        ind += serial_type.len;
+        types.push(serial_type);
+    }
+
+    assert!(ind == header_size.val as usize);
+
+    Ok((types, ind))
+}
+
 #[derive(Debug)]
 #[allow(dead_code)]
-pub struct Content {
+pub struct RowCell{
+    pub row: Vec<Record>
+}
+
+impl RowCell {
+    fn new(bytes: &[u8]) -> Result<Self> {
+        let (types, mut ind) = parse_cell_header(bytes)?;
+        let mut row = Vec::new();
+
+        for serial_type in types {
+            let r = Record::new(&bytes[ind..], &serial_type)?;
+            ind += r.mem_size();
+            // println!("r: {:?}", r);
+            row.push(r);
+        }
+
+        Ok(Self { row })
+    }
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub enum ContentVariant {
+    TableCell,
+    RowCell
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub enum Content {
+    TableCell(TableCell),
+    RowCell(RowCell)
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct TableCell {
     header_size: VarInt,
     schema_type: Record,
     schema_name: Record,
@@ -179,7 +239,7 @@ pub struct Content {
     schema_sql: Record,
 }
 
-impl Content {
+impl TableCell {
     pub fn get_sql(&self) -> &Record {
         &self.schema_sql
     }
@@ -207,37 +267,35 @@ impl Content {
     }
 
     fn new(bytes: &[u8]) -> Result<Self> {
-        let mut ind: usize = 0;
         let header_size = VarInt::from_mem(&bytes[..10])?;
-        ind += header_size.len;
-        let schema_type_size = VarInt::from_mem(&bytes[ind..ind + 10])?;
-        ind += schema_type_size.len;
-        let schema_name_size = VarInt::from_mem(&bytes[ind..ind + 10])?;
-        ind += schema_name_size.len;
-        let table_name_size = VarInt::from_mem(&bytes[ind..ind + 10])?;
-        ind += table_name_size.len;
-        let rootpage_type = VarInt::from_mem(&bytes[ind..ind + 10])?;
-        ind += rootpage_type.len;
-        let sql_size = VarInt::from_mem(&bytes[ind..ind + 10])?;
-        ind += sql_size.len;
+        let mut c = RowCell::new(bytes)?;
 
-        // println!("before parsing records");
-        // println!("header_size: {}", header_size);
-        // println!("schema_type_size: {}", schema_type_size);
-        // println!("schema_name_size: {}", schema_name_size);
-        // println!("table_name_size: {}", table_name_size);
-        // println!("rootpage_type: {}", rootpage_type);
-        // println!("sql_size: {}", sql_size);
-
-        let schema_type = Record::new(&bytes[ind..], &schema_type_size)?;
-        ind += schema_type.mem_size();
-        let schema_name = Record::new(&bytes[ind..], &schema_name_size)?;
-        ind += schema_name.mem_size();
-        let schema_tbl_name = Record::new(&bytes[ind..], &table_name_size)?;
-        ind += schema_tbl_name.mem_size();
-        let schema_rootpage = Record::new(&bytes[ind..], &rootpage_type)?;
-        ind += schema_rootpage.mem_size();
-        let schema_sql = Record::new(&bytes[ind..], &sql_size)?;
+        let schema_sql = c.row.pop().expect("TableRow doesnt have schema sql");
+        let schema_rootpage = c.row.pop().expect("TableRow doesnt have schema rootpage");
+        let schema_tbl_name = c.row.pop().expect("TableRow doesnt have schema table name");
+        let schema_name = c.row.pop().expect("TableRow doesnt have schema name");
+        let schema_type = c.row.pop().expect("TableRow doesnt have schema type");
+        // let mut ind: usize = 0;
+        // let schema_type_size = VarInt::from_mem(&bytes[ind..ind + 10])?;
+        // ind += schema_type_size.len;
+        // let schema_name_size = VarInt::from_mem(&bytes[ind..ind + 10])?;
+        // ind += schema_name_size.len;
+        // let table_name_size = VarInt::from_mem(&bytes[ind..ind + 10])?;
+        // ind += table_name_size.len;
+        // let rootpage_type = VarInt::from_mem(&bytes[ind..ind + 10])?;
+        // ind += rootpage_type.len;
+        // let sql_size = VarInt::from_mem(&bytes[ind..ind + 10])?;
+        // ind += sql_size.len;
+        //
+        // let schema_type = Record::new(&bytes[ind..], &schema_type_size)?;
+        // ind += schema_type.mem_size();
+        // let schema_name = Record::new(&bytes[ind..], &schema_name_size)?;
+        // ind += schema_name.mem_size();
+        // let schema_tbl_name = Record::new(&bytes[ind..], &table_name_size)?;
+        // ind += schema_tbl_name.mem_size();
+        // let schema_rootpage = Record::new(&bytes[ind..], &rootpage_type)?;
+        // ind += schema_rootpage.mem_size();
+        // let schema_sql = Record::new(&bytes[ind..], &sql_size)?;
         Ok(Self {
             header_size,
             schema_type,
@@ -265,14 +323,20 @@ impl Cell {
         (self.size_record.val as usize) + self.rowid.len + self.size_record.len
     }
 
-    pub fn new(bytes: &[u8], page_type: &PageType) -> Result<Self> {
+    pub fn new(bytes: &[u8], page_type: &PageType, content_type: ContentVariant) -> Result<Self> {
         match page_type {
             PageType::LeafTable => {
                 // there can be overflow for cell spillage
                 let size_record = VarInt::from_mem(&bytes[..9])?;
                 let rowid = VarInt::from_mem(&bytes[size_record.len..size_record.len + 9])?;
 
-                let content = Content::new(&bytes[&size_record.len + &rowid.len..])?;
+                let content = match content_type {
+                    ContentVariant::TableCell => Content::TableCell(TableCell::new(&bytes[&size_record.len + &rowid.len..])?),
+                    ContentVariant::RowCell => {
+                        Content::RowCell(RowCell::new(&bytes[&size_record.len + &rowid.len..])?)
+                        // println!("page: {}",)
+                    },
+                };
 
                 return Ok(Self {
                     size_record,

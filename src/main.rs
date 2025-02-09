@@ -2,6 +2,9 @@ mod cell;
 mod commands;
 mod page;
 mod utils;
+mod db;
+
+use db::DB;
 
 use anyhow::{bail, Ok, Result};
 
@@ -15,16 +18,18 @@ fn main() -> Result<()> {
         _ => {}
     }
 
+    let mut db = DB::new(&args[1])?;
+
     let command = &args[2];
     match command.as_str() {
         ".dbinfo" => {
-            commands::db_info(&args[1])?;
+            commands::db_info(&mut db)?;
         }
         ".tables" => {
-            commands::tables(&args[1])?;
+            commands::tables(&mut db)?;
         }
         _ => {
-            commands::sql_query(&args[1], command)?;
+            commands::sql_query(&mut db, command)?;
         },
     }
 

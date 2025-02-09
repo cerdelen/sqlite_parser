@@ -1,26 +1,26 @@
 use crate::cell::*;
+use crate::db::DB;
 use crate::page::*;
 
 use regex::Regex;
 
 use anyhow::Ok;
 use anyhow::Result;
-use std::fs::File;
-use std::io::prelude::*;
-use std::io::SeekFrom;
 
-pub fn tables(p: &str) -> Result<()> {
-    let mut file = File::open(p)?;
-    let db_header = DataBaseHeader::new(&mut file)?;
-
-    file.rewind()?;
-    let page = Page::new(&mut file, db_header.page_size, 100)?;
+pub fn tables(db: &mut DB) -> Result<()> {
+    let page = Page::new(db, 1)?;
 
     let tables = tables_from_page(&page)?;
 
     let mut tables_names: Vec<&str> = tables
         .iter()
-        .filter_map(|table| table.content.get_table_name().ok())
+        .filter_map(|table| {
+            if let Content::TableCell(content) = &table.content {
+                content.get_table_name().ok()
+            } else {
+                None
+            }
+        })
         .collect();
 
     tables_names.sort();
@@ -33,41 +33,30 @@ pub fn tables(p: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn db_info(p: &str) -> Result<()> {
-    let mut file = File::open(p)?;
-    let db_header = DataBaseHeader::new(&mut file)?;
+pub fn db_info(db: &mut DB) -> Result<()> {
+    let page = Page::new(db, 1)?;
 
-    file.rewind()?;
-    let page = Page::new(&mut file, db_header.page_size, 100)?;
-
-    println!("database page size: {}", db_header.page_size);
+    println!("database page size: {}", db.header.page_size);
     println!("number of tables: {}", page.cell_count);
 
     Ok(())
 }
 
-fn count_rows(p: &str, table: &str) -> Result<()> {
-    let mut file = File::open(p)?;
-    let db_header = DataBaseHeader::new(&mut file)?;
-
-    file.rewind()?;
-    let page = Page::new(&mut file, db_header.page_size, 100)?;
+fn count_rows(db: &mut DB, table: &str) -> Result<()> {
+    let page = Page::new(db, 1)?;
 
     let tables = tables_from_page(&page)?;
 
     if let Some(table) = find_table_by_name(&tables, table) {
         println!("{}", table);
-        let root_page =
-            (table.content.get_rootpage().get_numeric_val() - 1) * db_header.page_size as u64;
+        if let Content::TableCell(content) = &table.content {
+            let table_page = Page::new(db, content.get_rootpage().get_numeric_val())?;
 
-        file.seek(SeekFrom::Start(root_page))?;
-        let table_page = Page::new(&mut file, db_header.page_size, 0)?;
-        // println!("table_page: {}", table_page);
-
-        if let PageType::LeafTable = table_page.page_type {
-            println!("{}", table_page.cell_count);
-        } else {
-            println!("table is multipage table ... cant parse that yet");
+            if let PageType::LeafTable = table_page.page_type {
+                println!("{}", table_page.cell_count);
+            } else {
+                println!("table is multipage table ... cant parse that yet");
+            }
         }
     } else {
         println!("no such table: {}", table);
@@ -76,34 +65,63 @@ fn count_rows(p: &str, table: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn select_x_from_y(p: &str, x: &str, y: &str) -> Result<()> {
-    println!("Select {} from {}", x, y);
-    let mut file = File::open(p)?;
-    let db_header = DataBaseHeader::new(&mut file)?;
+fn values_from_rows(db: &mut DB, page_ind: u64, ind: usize) -> Result<Vec<String>> {
+    db.root_page(page_ind)?;
+    let table_page = Page::new(db, page_ind)?;
+    let contents = rows_from_page(&table_page)?;
 
-    file.rewind()?;
-    let page = Page::new(&mut file, db_header.page_size, 100)?;
+    let mut ret = vec![];
+
+    for content in contents {
+        if let Content::RowCell(row) = content {
+            if let Some(Record::String(s)) = row.row.get(ind) {
+                ret.push(s.clone());
+            }
+        }
+    }
+
+    Ok(ret)
+}
+
+pub fn select_x_from_y(db: &mut DB, x: &str, y: &str) -> Result<()> {
+    println!("Select {} from {}", x, y);
+
+    let page = Page::new(db, 1)?;
 
     let tables = tables_from_page(&page)?;
 
-    if let Some(table) = find_table_by_name(&tables, y) {
-        println!("table: {}", table);
-        let table_regex = Regex::new(r"(?i)CREATE\s+TABLE\s+(\w+)\s*\(([^;]+)\)").unwrap();
-        let field_regex = Regex::new(r"(\w+)\s+\w+").unwrap();
+    let mut column_ind = None;
+    let mut rootpage_ind = None;
 
-        if let Some(caps) = table_regex.captures(table.content.get_sql().get_string_val()) {
-            let table_name = &caps[1];
-            let fields_part = &caps[2];
-            for field_cap in field_regex.captures_iter(fields_part) {
-                println!("Field: {}", &field_cap[1]);
+    if let Some(table) = find_table_by_name(&tables, y) {
+        if let Content::TableCell(content) = &table.content {
+            rootpage_ind = Some(content.get_rootpage().get_numeric_val());
+            let table_regex = Regex::new(r#"(?i)CREATE\s+TABLE\s+"?(\w+)"?\s*\(([^;]+)\)"#).unwrap();
+            let field_regex = Regex::new(r"(?m)^\s*(\w+)\s+[\w()]+").unwrap();
+
+            if let Some(caps) = table_regex.captures(content.get_sql().get_string_val()) {
+                let fields_part = &caps[2];
+                for (i, field_cap) in field_regex.captures_iter(fields_part).enumerate() {
+                    if &field_cap[1] == x {
+                        column_ind = Some(i);
+                    }
+                }
             }
         }
+    };
+
+    if let (Some(r_ind), Some(c_ind)) = (rootpage_ind, column_ind) {
+        let vals = values_from_rows(db, r_ind, c_ind)?;
+        for val in vals {
+            println!("{}", val);
+        }
+
     }
 
     Ok(())
 }
 
-pub fn sql_query(p: &str, query: &str) -> Result<()> {
+pub fn sql_query(db: &mut DB, query: &str) -> Result<()> {
     let tokens: Vec<&str> = query.split(" ").collect();
 
     if tokens.len() < 4 {
@@ -111,7 +129,7 @@ pub fn sql_query(p: &str, query: &str) -> Result<()> {
     }
 
     if *tokens.get(1).unwrap() == "COUNT(*)" {
-        return count_rows(p, tokens.last().unwrap());
+        return count_rows(db, tokens.last().unwrap());
     }
-    select_x_from_y(p, tokens.get(1).unwrap(), tokens.get(3).unwrap())
+    select_x_from_y(db, tokens.get(1).unwrap(), tokens.get(3).unwrap())
 }

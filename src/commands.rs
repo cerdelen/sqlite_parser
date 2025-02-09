@@ -1,7 +1,11 @@
+use std::collections;
+use std::vec;
+
 use crate::cell::*;
 use crate::db::DB;
 use crate::page::*;
 
+use anyhow::anyhow;
 use regex::Regex;
 
 use anyhow::Ok;
@@ -65,7 +69,10 @@ fn count_rows(db: &mut DB, table: &str) -> Result<()> {
     Ok(())
 }
 
-fn values_from_rows(db: &mut DB, page_ind: u64, ind: usize) -> Result<Vec<String>> {
+fn values_from_rows(db: &mut DB, page_ind: u64, ind: &Vec<usize>) -> Result<Vec<Vec<String>>> {
+    if ind.len() == 0 {
+        anyhow!("0 keys");
+    }
     db.root_page(page_ind)?;
     let table_page = Page::new(db, page_ind)?;
     let contents = rows_from_page(&table_page)?;
@@ -74,23 +81,30 @@ fn values_from_rows(db: &mut DB, page_ind: u64, ind: usize) -> Result<Vec<String
 
     for content in contents {
         if let Content::RowCell(row) = content {
-            if let Some(Record::String(s)) = row.row.get(ind) {
-                ret.push(s.clone());
+            let mut inner_ret = vec![];
+            for c_ind in ind {
+                if let Some(Record::String(s)) = row.row.get(c_ind.clone()) {
+                    inner_ret.push(s.clone());
+                }
             }
+            ret.push(inner_ret);
         }
     }
 
     Ok(ret)
 }
 
-pub fn select_x_from_y(db: &mut DB, x: &str, y: &str) -> Result<()> {
-    println!("Select {} from {}", x, y);
+pub fn select_x_from_y(db: &mut DB, x: &[&str], y: &str) -> Result<()> {
+    let mut keys = vec![];
+    for key in x {
+        keys.push(key.trim_matches(','));
+    }
 
     let page = Page::new(db, 1)?;
 
     let tables = tables_from_page(&page)?;
 
-    let mut column_ind = None;
+    let mut column_ind = vec![];
     let mut rootpage_ind = None;
 
     if let Some(table) = find_table_by_name(&tables, y) {
@@ -99,25 +113,43 @@ pub fn select_x_from_y(db: &mut DB, x: &str, y: &str) -> Result<()> {
             let table_regex = Regex::new(r#"(?i)CREATE\s+TABLE\s+"?(\w+)"?\s*\(([^;]+)\)"#).unwrap();
             let field_regex = Regex::new(r"(?m)^\s*(\w+)\s+[\w()]+").unwrap();
 
+            // println!("table: {:?}", content);
             if let Some(caps) = table_regex.captures(content.get_sql().get_string_val()) {
                 let fields_part = &caps[2];
                 for (i, field_cap) in field_regex.captures_iter(fields_part).enumerate() {
-                    if &field_cap[1] == x {
-                        column_ind = Some(i);
+                    if keys.contains(&&field_cap[1]) {
+                        column_ind.push(i);
                     }
                 }
             }
         }
     };
 
-    if let (Some(r_ind), Some(c_ind)) = (rootpage_ind, column_ind) {
-        let vals = values_from_rows(db, r_ind, c_ind)?;
-        for val in vals {
-            println!("{}", val);
+    if let Some(r_ind) = rootpage_ind {
+        let vals = values_from_rows(db, r_ind, &column_ind)?;
+        for row_val in vals {
+            for (i, col_val) in row_val.iter().enumerate() {
+                if i > 0 {
+                    print!("|");
+                }
+                print!("{}", col_val);
+            }
+            println!();
         }
-
     }
 
+    Ok(())
+}
+
+pub fn select(db: &mut DB, query: &[&str]) -> Result<()> {
+    let mut ind = 0;
+    for (i, token) in query.iter().enumerate() {
+        if *token == "FROM" {
+            ind = i;
+            break;
+        }
+    };
+    select_x_from_y(db, &query[0..ind], query.last().unwrap());
     Ok(())
 }
 
@@ -131,5 +163,9 @@ pub fn sql_query(db: &mut DB, query: &str) -> Result<()> {
     if *tokens.get(1).unwrap() == "COUNT(*)" {
         return count_rows(db, tokens.last().unwrap());
     }
-    select_x_from_y(db, tokens.get(1).unwrap(), tokens.get(3).unwrap())
+
+    select(db, &tokens[1..]);
+
+    Ok(())
 }
+

@@ -1,11 +1,9 @@
-use std::collections;
 use std::vec;
 
 use crate::cell::*;
 use crate::db::DB;
 use crate::page::*;
 
-use anyhow::anyhow;
 use anyhow::bail;
 use regex::Regex;
 
@@ -78,7 +76,7 @@ fn values_from_rows(
     where_cond: &Option<(&&str, ConditionOperators, String)>,
 ) -> Result<Vec<Vec<String>>> {
     if ind.len() == 0 {
-        anyhow!("0 keys");
+        bail!("0 keys");
     }
     db.root_page(page_ind)?;
     let table_page = Page::new(db, page_ind)?;
@@ -119,7 +117,7 @@ fn check_condition(col_val: &str, where_cond: &(&&str, ConditionOperators, Strin
     }
 }
 
-pub fn select_with_parsed_params(
+fn select_with_parsed_params(
     db: &mut DB,
     columns: &[&str],
     table: &str,
@@ -229,7 +227,7 @@ pub fn select(db: &mut DB, query: &[&str]) -> Result<()> {
         }
     }
 
-    select_with_parsed_params(db, &query[0..ind], &query[ind + 1], cond);
+    select_with_parsed_params(db, &query[0..ind], &query[ind + 1], cond)?;
     Ok(())
 }
 
@@ -244,7 +242,7 @@ pub fn sql_query(db: &mut DB, query: &str) -> Result<()> {
         return count_rows(db, tokens.last().unwrap());
     }
 
-    select(db, &tokens[1..]);
+    select(db, &tokens[1..])?;
 
     Ok(())
 }
